@@ -1,0 +1,10 @@
+// Create socket
+socket(AF_PACKET, SOCK_RAW, htons(0 /* ETH_P_??? */)) = 4
+
+// Get the MAC addr of "eno1"
+ioctl(4, SIOCGIFHWADDR, {ifr_name="eno1", ifr_hwaddr={sa_family=ARPHRD_ETHER, sa_data=00:d8:61:53:04:e3}}) = 0
+
+// Get the interface index of "eno1"
+ioctl(4, SIOCGIFINDEX, {ifr_name="eno1", ifr_ifindex=2}) = 0
+
+bind(4, {sa_family=AF_PACKET, sll_protocol=htons(0 /* ETH_P_??? */), sll_ifindex=if_nametoindex("eno1"), sll_hatype=ARPHRD_NETROM, sll_pkttype=PACKET_HOST, sll_halen=0}, 20) = 0
