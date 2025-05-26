@@ -1,0 +1,5 @@
+to do:
+    -decode hex from caught-packets.hex
+    -passthrough of all other packets
+    -selective passthrough and/or reply spoofing for caught packets
+    -implement .sh script for starting both programs

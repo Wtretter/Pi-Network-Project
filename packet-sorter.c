@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -68,7 +69,7 @@ int main(int argc, char **argv){
     socklen_t sender_address_length = sizeof sender_address;
     size_t max_packet_size = 65535;
     uint8_t packet[max_packet_size];
-
+    
     while (true) {
         ssize_t packet_length = recvfrom(s, packet, max_packet_size, 0, (struct sockaddr *)&sender_address, &sender_address_length);
         if (packet_length <= 0) {
@@ -76,13 +77,19 @@ int main(int argc, char **argv){
             close(s);
             exit(EXIT_FAILURE);
         }
-
-        printf("Received packet of length: %zd\n", packet_length);
-        for (ssize_t i=0; i < packet_length; i++) {
-            printf("%02x ", packet[i]);
+    
+        if (packet[39] == 0x35){
+            if (packet[38] == 0x00){
+                printf("Received DNS packet of length: %zd\n", packet_length);
+                FILE *caught_file;
+                caught_file = fopen("caught-packets.hex", "w");
+                for (ssize_t i=0; i < packet_length; i++) {
+                    int a = packet[i];
+                    fprintf(caught_file, " %x", packet[i]);
+                }
+                fclose(caught_file);
+                exit(EXIT_SUCCESS);
+            }
         }
-        printf("\n");
-
-        break;
     }
 }
