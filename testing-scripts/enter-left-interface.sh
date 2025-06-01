@@ -1,0 +1,1 @@
+ip netns exec left-ns bash

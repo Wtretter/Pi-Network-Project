@@ -17,3 +17,17 @@
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                             data                              |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Step-by-Step Guide to Calculate the TCP Checksum
+
+To calculate the TCP checksum, follow these basic steps:
+
+    Prepare the Data: Combine the TCP header and the data to be transmitted. Make sure to include any necessary padding for alignment.
+
+    Divide the Data: Split the data into 16-bit words (2-byte parts). If the last part is incomplete, pad it with zeros.
+
+    Sum the Words: Add up all the 16-bit words. If the sum exceeds 16 bits, wrap the overflow back around to the lower 16 bits.
+
+    Invert the Sum: After adding all the words, take the one’s complement (invert all the bits) of the sum. This inverted value is the checksum.
+    
+    Attach the Checksum: The calculated checksum is then included in the TCP header for transmission.

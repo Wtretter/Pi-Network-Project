@@ -1,14 +1,32 @@
+import socket
+import os
+
+def handle_client(client, address):
+    while True:
+        packet = client.read()
+        print(packet.hex())
+        
+
+def main():
+    try:
+        os.unlink("./packet.sock")
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind("./packet.sock")
+
+    server.listen()
+
+    while True:
+        client, address = server.accept()
+        try:
+            handle_client(client, address)
+        except:
+            client.close()
+        
+
+    server.close()
 
 
-watched_file = "./caught-packets.hex"
-
-file_contents = None
-while True:
-    with open(watched_file, "r") as data_file:
-        new_data = data_file.read()
-                
-    if file_contents != None and new_data != file_contents:
-        print("New data recieved")
-        print(bytes.fromhex(new_data))
-
-    file_contents = new_data
+main()
