@@ -85,10 +85,10 @@ int main(int argc, char **argv){
                 caught_file = fopen("caught-packets.hex", "w");
                 for (ssize_t i=0; i < packet_length; i++) {
                     int a = packet[i];
-                    fprintf(caught_file, " %x", packet[i]);
+                    fprintf(caught_file, "%02X ", packet[i]);
                 }
                 fclose(caught_file);
-                exit(EXIT_SUCCESS);
+                // exit(EXIT_SUCCESS);
             }
         }
     }
