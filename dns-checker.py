@@ -1,10 +1,15 @@
+#!/usr/bin/env python3
+
 import socket
 import os
 
-def handle_client(client, address):
+def handle_client(client: socket.socket, address):
     while True:
-        packet = client.read()
-        print(packet.hex())
+        packet = client.recv(8192)
+
+        
+
+        client.send(packet)
         
 
 def main():

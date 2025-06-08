@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
+#include <sys/un.h>
 
 
 void fix_checksums(uint8_t *packet, size_t packet_length);
@@ -20,6 +21,11 @@ void fix_ipv4_checksums(uint8_t *packet, size_t packet_length);
 void fix_ipv6_checksums(uint8_t *packet, size_t packet_length);
 void fix_tcp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudoheader);
 void fix_udp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudoheader);
+bool check_packet(uint8_t *packet, size_t packet_length);
+bool check_packet_ipv4(uint8_t *packet, size_t packet_length);
+bool check_packet_ipv6(uint8_t *packet, size_t packet_length);
+bool check_packet_tcp(uint8_t *packet, size_t packet_length);
+bool check_packet_udp(uint8_t *packet, size_t packet_length);
 
 
 void fix_checksums(uint8_t *packet, size_t packet_length){
@@ -108,6 +114,55 @@ void fix_udp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudohea
     *(uint16_t *)(packet + 6) = htobe16(new_checksum);
 }
 
+bool check_packet(uint8_t *packet, size_t packet_length){
+    int ether_type = be16toh(*(uint16_t *)(packet));
+    if (ether_type == 0x0800){
+        return check_packet_ipv4(packet + 2, packet_length - 2);
+    }
+    else if (ether_type == 0x86DD){
+        return check_packet_ipv6(packet + 2, packet_length - 2);
+    } else{
+        return false;
+    }
+}
+
+bool check_packet_ipv4(uint8_t *packet, size_t packet_length){
+    int protocol = packet[9];
+    int header_length = ((packet[0] & 0b00001111) * 4);
+    if (protocol == 0x06){
+        return check_packet_tcp(packet + header_length, packet_length - header_length);
+    } else if (protocol == 0x11){
+        return check_packet_udp(packet + header_length, packet_length - header_length);
+    } else{
+        return false;
+    }
+}
+
+bool check_packet_ipv6(uint8_t *packet, size_t packet_length){
+    int protocol = packet[6];
+    if (protocol == 0x06){
+        return check_packet_tcp(packet + 40, packet_length - 40);
+    } else if (protocol == 0x11){
+        return check_packet_udp(packet + 40, packet_length - 40);
+    } else{
+        return false;
+    }
+}
+
+bool check_packet_tcp(uint8_t *packet, size_t packet_length){
+    return false;
+}
+
+bool check_packet_udp(uint8_t *packet, size_t packet_length){
+    uint16_t src_port = be16toh(*(uint16_t *)(packet));
+    uint16_t dst_port = be16toh(*(uint16_t *)(packet + 2));
+    if (src_port == 53||dst_port == 53){
+        return true;
+    } else{
+        return false;
+    }
+}
+
 int open_port(char *interface_name, struct sockaddr_ll *interface_addr_out){
     int open_socket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
@@ -115,6 +170,14 @@ int open_port(char *interface_name, struct sockaddr_ll *interface_addr_out){
         printf("Failed to open Socket: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
+
+    // Ignore outgoing packets
+    int ignore_out = 1;
+    if (setsockopt(open_socket, SOL_PACKET, PACKET_IGNORE_OUTGOING, &ignore_out, sizeof ignore_out) == -1) {
+        printf("failed to setsockopt PACKET_IGNORE_OUTGOING: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
 
     // Get mac address of interface
     struct ifreq interface_request = {0};
@@ -147,6 +210,12 @@ int open_port(char *interface_name, struct sockaddr_ll *interface_addr_out){
     return open_socket;
 }
 
+bool send_to_python(uint8_t *packet, size_t packet_length, int python_fd, int out_port){
+    *(int32_t *)(packet + packet_length) = out_port;
+    packet_length += 4;
+    send(python_fd, packet, packet_length, 0);
+}
+
 
 int main(int argc, char **argv){
     if (argc != 3){
@@ -154,8 +223,15 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
+    pid_t pid = fork();
 
-    // Receive packets in a loop
+    if (pid == 0){
+        char *child_argv[2] = {"./dns-checker.py", NULL};
+        execvp("./dns-checker.py", child_argv);
+        printf("failed exec: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+   }
+
     struct sockaddr_in sender_address = {0};
     socklen_t sender_address_length = sizeof sender_address;
     size_t max_packet_size = 65535;
@@ -168,65 +244,100 @@ int main(int argc, char **argv){
     int out_port;
     struct sockaddr_ll *out_addr;
 
-    int a = epoll_create(2);
+    int epoll_fd = epoll_create(2);
     struct epoll_event events;
     events.events = EPOLLIN;
 
     events.data.fd = left_port;
-    epoll_ctl(a, EPOLL_CTL_ADD, left_port, &events);
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, left_port, &events);
     events.data.fd = right_port;
-    epoll_ctl(a, EPOLL_CTL_ADD, right_port, &events);
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, right_port, &events);
 
+    struct sockaddr_un python_addr;
+    python_addr.sun_family = AF_UNIX;
+    strcpy(python_addr.sun_path, "./packet.sock");
+    int python_fd = socket(PF_UNIX, SOCK_STREAM, 0);
+    if (connect(python_fd, (struct sockaddr *)&python_addr, sizeof(python_addr)) == -1) {
+        printf("failed to open connect to python: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
-
+    events.data.fd = python_fd;
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, python_fd, &events);
+    
     while (true) {
          
-        if (epoll_wait(a, &events, 1, -1) == -1){
+        if (epoll_wait(epoll_fd, &events, 1, -1) == -1){
             printf("failed EPOLL_WAIT");
             exit(EXIT_FAILURE);
         }
+        if (events.events & EPOLLERR){printf("EPOLLERR event\n"); exit(EXIT_FAILURE);}
+
+        if (events.events & EPOLLHUP){printf("EPOLLHUP event\n"); exit(EXIT_FAILURE);}
+
         int ready_port = events.data.fd;
         ssize_t packet_length = recvfrom(ready_port, packet, max_packet_size, 0, (struct sockaddr *)&sender_address, &sender_address_length);
-        if (packet_length <= 0) {
-            printf("Receive failed\n");
+        if (packet_length < 0) {
+            printf("Receive failed: %s\n", strerror(errno));
             close(ready_port);
             exit(EXIT_FAILURE);
+        } else if (packet_length == 0){
+            printf("ready port: %d\n", ready_port);
+            continue;
         }
 
         if (ready_port == left_port){
             out_port = right_port;
             out_addr = &right_addr;
         }
-        else{
+        else if(ready_port == right_port){
             out_port = left_port;
             out_addr = &left_addr;
+        } else{
+            out_port = *(int32_t *)(packet + packet_length - 4);
+            packet_length -= 4;
+            if (out_port == left_port){
+                out_addr = &left_addr;
+            } else{
+                out_addr = &right_addr;
+            }
         }
 
         fix_checksums(packet, packet_length);
 
-        sendto(out_port, packet, packet_length, 0, (struct sockaddr *)out_addr, sizeof(*out_addr));
+        if (ready_port == python_fd){
+            sendto(out_port, packet, packet_length, 0, (struct sockaddr *)out_addr, sizeof(*out_addr));
+        } else if (check_packet(packet + 12, packet_length - 12)){
+            if (!send_to_python(packet, packet_length, python_fd, out_port)){
+                sendto(out_port, packet, packet_length, 0, (struct sockaddr *)out_addr, sizeof(*out_addr));
+            }
+        } else{
+            sendto(out_port, packet, packet_length, 0, (struct sockaddr *)out_addr, sizeof(*out_addr));
+        }
 
-        for (ssize_t i=0; i < packet_length; i++) {
-                    int a = packet[i];
-                    // printf("%02X ", packet[i]);
-                }
+
+
+        // for (ssize_t i=0; i < packet_length; i++) {
+        //             int a = packet[i];
+        //             // printf("%02X ", packet[i]);
+        //         }
         // printf("\n");
     
-        if (packet[39] == 0x35){
-            if (packet[38] == 0x00){
-                // printf("Received DNS packet of length: %zd\n", packet_length);
-                FILE *caught_file;
-                caught_file = fopen("caught-packets.hex", "a");
-                for (ssize_t i=0; i < packet_length; i++) {
-                    int a = packet[i];
-                    fprintf(caught_file, "%02X ", packet[i]);
-                }
-                fprintf(caught_file, "\n");
-                fclose(caught_file);
-            }
-        }
+        // if (packet[39] == 0x35){
+        //     if (packet[38] == 0x00){
+        //         // printf("Received DNS packet of length: %zd\n", packet_length);
+        //         FILE *caught_file;
+        //         caught_file = fopen("caught-packets.hex", "a");
+        //         for (ssize_t i=0; i < packet_length; i++) {
+        //             int a = packet[i];
+        //             fprintf(caught_file, "%02X ", packet[i]);
+        //         }
+        //         fprintf(caught_file, "\n");
+        //         fclose(caught_file);
+        //     }
+        // }
     }
-    close(a);
+    close(epoll_fd);
     exit(EXIT_SUCCESS);
 
 }
