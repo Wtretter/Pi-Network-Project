@@ -1,2 +1,4 @@
 packet-sorter
+fallback-mode
+*.sock
 *.hex
