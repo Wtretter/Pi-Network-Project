@@ -1,4 +1,6 @@
+.vscode/
 packet-sorter
 fallback-mode
 *.sock
 *.hex
+bin/*.o
