@@ -4,3 +4,5 @@ fallback-mode
 *.sock
 *.hex
 bin/*.o
+blacklist
+dns.log
