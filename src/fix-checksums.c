@@ -23,6 +23,14 @@ void fix_ipv4_checksums(uint8_t *packet, size_t packet_length){
     pseudo_header += protocol;
     pseudo_header += (packet_length - header_length);
 
+    // ip checksum
+    *(uint16_t *)(packet + 10) = 0;
+    uint32_t checksum = 0;
+    for (size_t i=0; i < header_length; i += 2){
+        checksum += be16toh(*(uint16_t *)(packet + i));
+    }
+    *(uint16_t *)(packet + 10) = htobe16(finalize_checksum(checksum));
+
     // tcp
     if (protocol == 0x06){
         fix_tcp_checksums(packet + header_length, packet_length - header_length, pseudo_header);
@@ -62,14 +70,7 @@ void fix_tcp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudohea
     for (size_t i=0; i < packet_length; i += 2){
         checksum += be16toh(*(uint16_t *)(packet + i));
     }
-    uint32_t top = checksum >> 16;
-    uint32_t bottom = checksum & 0x0000ffff;
-    uint32_t new_checksum = top + bottom;
-    top = new_checksum >> 16;
-    bottom = new_checksum & 0x0000ffff;
-    new_checksum = top + bottom;
-    new_checksum = ~new_checksum;
-    *(uint16_t *)(packet + 16) = htobe16((uint16_t)new_checksum);
+    *(uint16_t *)(packet + 16) = htobe16(finalize_checksum(checksum));
 }
 
 void fix_udp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudoheader){
@@ -81,9 +82,16 @@ void fix_udp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudohea
     for (size_t i=0; i < packet_length; i += 2){
         checksum += be16toh(*(uint16_t *)(packet + i));
     }
-    uint16_t top = checksum >> 16;
-    uint16_t bottom = checksum & 0x0000ffff;
-    uint16_t new_checksum = top + bottom;
+    *(uint16_t *)(packet + 6) = htobe16(finalize_checksum(checksum));
+}
+
+uint16_t finalize_checksum(uint32_t checksum) {
+    uint32_t top = checksum >> 16;
+    uint32_t bottom = checksum & 0x0000ffff;
+    uint32_t new_checksum = top + bottom;
+    top = new_checksum >> 16;
+    bottom = new_checksum & 0x0000ffff;
+    new_checksum = top + bottom;
     new_checksum = ~new_checksum;
-    *(uint16_t *)(packet + 6) = htobe16(new_checksum);
+    return (uint16_t)new_checksum;
 }

@@ -9,5 +9,5 @@ void fix_ipv4_checksums(uint8_t *packet, size_t packet_length);
 void fix_ipv6_checksums(uint8_t *packet, size_t packet_length);
 void fix_tcp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudoheader);
 void fix_udp_checksums(uint8_t *packet, size_t packet_length, uint32_t pseudoheader);
-
+uint16_t finalize_checksum(uint32_t checksum);
 #endif

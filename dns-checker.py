@@ -2,14 +2,37 @@
 
 import socket
 import os
+import requests
+import datetime
 from scapy.layers.l2 import Ether
 from scapy.layers.dns import DNS, EDNS0TLV
 
 
 log_file = open("dns.log", "a")
 
-with open("blacklist", "r") as blacklist_file:
-    blacklist = blacklist_file.read().splitlines()
+try:
+    with open("blacklist", "r") as blacklist_file:
+        pre_blacklist = blacklist_file.read().splitlines()
+except FileNotFoundError:
+    print("Blacklist empty, fetching default list")
+
+    url = f"https://v.firebog.net/hosts/AdguardDNS.txt"
+    response = requests.get(url)
+    new_blacklist = response.text
+    pre_blacklist = new_blacklist.splitlines()
+
+    with open("blacklist", "w") as blacklist_file:
+        blacklist_file.write(new_blacklist)
+
+blacklist = []
+
+for item in pre_blacklist:
+    item = item.strip()
+    if item.startswith("#"):
+        continue
+    if not item:
+        continue
+    blacklist.append(item)
 
 def handle_client(client: socket.socket, address):
     while True:
@@ -22,20 +45,21 @@ def handle_client(client: socket.socket, address):
         dns_message = parsed_packet.lastlayer()
         if isinstance(dns_message, DNS):
             req_domain = dns_message.fields["qd"].qname.decode()[:-1]
-
-            if not (dns_message.fields["qr"]):
+            requesting_ip = get_sender_ip(packet)
+            time = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+            log_message = f"{time} {requesting_ip} requested: {req_domain}"
+            if not dns_message.fields["qr"]:
                 if req_domain in blacklist:
-                    log_file.write(req_domain+" (BLOCKED)\n")
-                    log_file.flush()
                     
+                    log_file.write(log_message + " (BLOCKED)\n")
+                    log_file.flush()
                 else:    
-                    log_file.write(req_domain+"\n")
+                    log_file.write(log_message + "\n")
                     log_file.flush()
             else:
                 if req_domain in blacklist:
                     remove_dns_answers(parsed_packet)
                     modified = True
-                    
         else:
             print("Packet not DNS")
 
@@ -72,6 +96,7 @@ def handle_client(client: socket.socket, address):
                 pass
             else:
                 print("Invalid Next Protocol")
+
         parsed_packet = Ether(packet)
         
         # print(packet.hex(bytes_per_sep=1, sep=" "), "\n")
@@ -91,6 +116,18 @@ def remove_dns_answers(parsed_packet: Ether):
     dns_message.fields["ar"].fields["rdlen"] = 6
 
     
+def get_sender_ip(packet: bytes) -> str:
+    ether_type = int.from_bytes(packet[12:14], "big")
+
+    if ether_type == 0x0800:
+        return "ipv4"
+    
+    elif ether_type == 0x86DD:
+        return "ipv6"
+    
+    else: 
+        print("failed to decode EtherType")
+
 def main():
     try:
         os.unlink("./packet.sock")
@@ -106,10 +143,9 @@ def main():
         client, address = server.accept()
         try:
             handle_client(client, address)
-        except:
+        finally:
             client.close()
         
-
     server.close()
 
 

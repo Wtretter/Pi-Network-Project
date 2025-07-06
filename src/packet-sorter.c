@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 1
+
 #include <errno.h>
 #include <endian.h>
 #include <stdbool.h>
@@ -6,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <arpa/inet.h>
 #include <linux/if.h>
 #include <linux/if_packet.h>
@@ -18,14 +21,29 @@
 #include "fix-checksums.h"
 #include "check-packet.h"
 
+bool interupted = false;
 
 bool send_to_python(uint8_t *packet, size_t packet_length, int python_fd, int out_port){
     *(int32_t *)(packet + packet_length) = out_port;
     packet_length += 4;
-    send(python_fd, packet, packet_length, 0);
+    if (send(python_fd, packet, packet_length, 0) == -1){
+        return false;
+    }
     return true;
 }
 
+void interrupt_handler(int sig){
+    interupted = true;
+}
+
+void fallback(int argc, char **argv){
+    // TODO: kill python
+
+    char *child_argv[4] = {"./fallback-mode", argv[1], argv[2], NULL};
+    execvp("./fallback-mode", child_argv);
+    printf("failed exec: %s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+}
 
 int main(int argc, char **argv){
     if (argc != 3){
@@ -33,12 +51,13 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
+    signal(SIGINT, interrupt_handler);
+
     port_handler_t handler;
 
     setup_handler(&handler, argv[1], argv[2]);
 
     pid_t pid = fork();
-
     if (pid == 0){
         char *child_argv[2] = {"./dns-checker.py", NULL};
         execvp("./dns-checker.py", child_argv);
@@ -57,20 +76,12 @@ int main(int argc, char **argv){
         printf("failed to open connection to python: %s\n", strerror(errno));
     
         // go into fallback mode
-        pid_t pid = fork();
-
-        if (pid == 0){
-            char *child_argv[4] = {"./fallback-mode", argv[1], argv[2], NULL};
-            execvp("./fallback-mode", child_argv);
-            printf("failed exec: %s\n", strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-        exit(EXIT_FAILURE);
+        fallback(argc, argv);
     }
 
     register_fd(&handler, python_fd);
     
-    while (true) {
+    while (!interupted) {
         size_t packet_size;
         
         int ready_port = get_packet(&handler, packet, &packet_size);
@@ -94,12 +105,15 @@ int main(int argc, char **argv){
         if (ready_port != python_fd && check_packet(packet + 12, packet_size - 12)){
             if (!send_to_python(packet, packet_size, python_fd, ready_port)){
                 send_packet(&handler, packet, packet_size, to_left);
+                // go into fallback mode
+                fallback(argc, argv);
             }
         }
         else {
             send_packet(&handler, packet, packet_size, to_left);
         }
     }
-
+    // kill python so it doesn't run forever
+    kill(pid, SIGTERM);
     exit(EXIT_SUCCESS);
 }

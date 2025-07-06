@@ -58,13 +58,9 @@ int main(int argc, char **argv){
     }
 
     printf("attempting automatic restart of main program\n");
-    pid_t pid = fork();
 
-    if (pid == 0){
-        char *child_argv[4] = {"./packet-sorter", argv[1], argv[2], NULL};
-        execvp("./packet-sorter", child_argv);
-        printf("failed exec: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    exit(EXIT_SUCCESS);
+    char *child_argv[4] = {"./packet-sorter", argv[1], argv[2], NULL};
+    execvp("./packet-sorter", child_argv);
+    printf("failed exec: %s\n", strerror(errno));
+    exit(EXIT_FAILURE);
 }
