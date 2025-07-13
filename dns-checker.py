@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import socket
+import sys
 import os
-import requests
 import datetime
+import requests
 from scapy.layers.l2 import Ether
 from scapy.layers.dns import DNS, EDNS0TLV
 
@@ -79,7 +80,6 @@ def handle_client(client: socket.socket, address):
                 rest_of_packet = packet[18:]
                 correct_ip_len = len(packet) - 14
                 if ipv4_len != correct_ip_len:
-                    print("IPV4 len incorrect, fixing")
                     packet = eth_header + pre_len + correct_ip_len.to_bytes(2) + rest_of_packet
                     ihl = (packet[14] & 0b00001111) * 4
                     udp_header_start = 14 + ihl
@@ -90,17 +90,15 @@ def handle_client(client: socket.socket, address):
                     if udp_len != correct_udp_len:
                         packet = packet_b4_udp_len + correct_udp_len.to_bytes(2) + packet_after_udp_len
 
-
             elif next_proto == 0x86DD:
                 # IPV6
                 pass
             else:
                 print("Invalid Next Protocol")
 
-        parsed_packet = Ether(packet)
-        
+        # parsed_packet = Ether(packet)
         # print(packet.hex(bytes_per_sep=1, sep=" "), "\n")
-        parsed_packet.show()
+        # parsed_packet.show()
         packet += ident
         client.send(packet)
         
@@ -143,10 +141,15 @@ def main():
         client, address = server.accept()
         try:
             handle_client(client, address)
+        except KeyboardInterrupt:
+            client.send((-1).to_bytes(4, signed=True))
+            break
         finally:
             client.close()
         
     server.close()
+    return 0
 
 
-main()
+sys.exit(main())
+    

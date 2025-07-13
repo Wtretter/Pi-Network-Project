@@ -26,6 +26,8 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
+    printf("Fallback-Mode initiated\n");
+
     port_handler_t handler;
 
     setup_handler(&handler, argv[1], argv[2]);
@@ -37,6 +39,10 @@ int main(int argc, char **argv){
         size_t packet_size;
         
         int ready_port = get_packet(&handler, packet, &packet_size);
+
+        if (ready_port == 0){
+            continue;
+        }
        
         bool to_left;
         if (ready_port == handler.left_port){

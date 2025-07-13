@@ -37,8 +37,6 @@ void interrupt_handler(int sig){
 }
 
 void fallback(int argc, char **argv){
-    // TODO: kill python
-
     char *child_argv[4] = {"./fallback-mode", argv[1], argv[2], NULL};
     execvp("./fallback-mode", child_argv);
     printf("failed exec: %s\n", strerror(errno));
@@ -50,6 +48,8 @@ int main(int argc, char **argv){
         printf("not right args;\n Usage: %s <Interface Name> <Interface Name>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    printf("Welcome to Packet-Filter!\n");
 
     signal(SIGINT, interrupt_handler);
 
@@ -85,7 +85,17 @@ int main(int argc, char **argv){
         size_t packet_size;
         
         int ready_port = get_packet(&handler, packet, &packet_size);
-       
+        if (ready_port == 0){
+            continue;
+        }
+
+        if (ready_port == -1){
+            if (interupted){
+                break;
+            }
+            fallback(argc, argv);
+        }
+
         bool to_left;
         if (ready_port == handler.left_port){
             to_left = false;
@@ -95,7 +105,11 @@ int main(int argc, char **argv){
         } else {
             int out_port = *(int32_t *)(packet + packet_size - 4);
             packet_size -= 4;
-            if (out_port == handler.left_port){
+            if (out_port == -1){
+                interupted = true;
+                break;
+            }
+            else if (out_port == handler.left_port){
                 to_left = false;
             } else{
                 to_left = true;

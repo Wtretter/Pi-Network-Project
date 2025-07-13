@@ -21,7 +21,7 @@ typedef struct port_handler
 
 
 int open_port(char *interface_name, struct sockaddr_ll *interface_addr_out);
-void setup_handler(port_handler_t *handler, char *left_if_name, char *right_if_name);
+bool setup_handler(port_handler_t *handler, char *left_if_name, char *right_if_name);
 void register_fd(port_handler_t *handler, int fd);
 int get_packet(port_handler_t *handler, uint8_t *packet, size_t *packet_size);
 void send_packet(port_handler_t *handler, uint8_t *packet, size_t packet_size, bool to_left);

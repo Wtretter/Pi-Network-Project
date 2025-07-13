@@ -59,7 +59,7 @@ int open_port(char *interface_name, struct sockaddr_ll *interface_addr_out){
     return open_socket;
 }
 
-void setup_handler(port_handler_t *handler, char *left_if_name, char *right_if_name){
+bool setup_handler(port_handler_t *handler, char *left_if_name, char *right_if_name){
     bool status = true;
     handler->left_port = open_port(left_if_name, &handler->left_addr);
     if (handler->left_port == -1){
@@ -94,13 +94,26 @@ void register_fd(port_handler_t *handler, int fd){
 
 int get_packet(port_handler_t *handler, uint8_t *packet, size_t *packet_size){
     struct epoll_event events;
-    if (epoll_wait(handler->epoll_fd, &events, 1, -1) == -1){
-        printf("failed EPOLL_WAIT");
+    int status = epoll_wait(handler->epoll_fd, &events, 1, 1000);
+    if (status == -1){
+        if (errno != EINTR){
+            printf("failed EPOLL_WAIT: %s\n", strerror(errno));
+        }
         return -1;
     }
-    if (events.events & EPOLLERR){printf("EPOLLERR event\n"); return -1;}
+    if (status == 0){
+        return 0;
+    }
 
-    if (events.events & EPOLLHUP){printf("EPOLLHUP event\n"); return -1;}
+    if (events.events & EPOLLERR){
+        printf("EPOLLERR event\n"); 
+        return -1;
+    }
+
+    if (events.events & EPOLLHUP){
+        printf("Lost Connection to Python DNS-Checker\n");
+        return -1;
+    }
 
     struct sockaddr_in sender_address = {0};
     socklen_t sender_address_length = sizeof sender_address;
